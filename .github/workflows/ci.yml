@@ -1,9 +1,7 @@
 name: CI
 on:
-  push:
-    branches: [main]
   pull_request:
-  workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 concurrency:
@@ -18,11 +16,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Check manual-review trust boundaries
+      - name: Check review trust boundaries
         run: |
           python3 -m venv "$RUNNER_TEMP/workflow-checks"
           "$RUNNER_TEMP/workflow-checks/bin/pip" install --disable-pip-version-check 'PyYAML==6.0.3'
           "$RUNNER_TEMP/workflow-checks/bin/python" tests/workflow_security.py
+          python3 tests/review_commands.py
   package:
     name: Test and package (${{ matrix.target }})
     needs: workflow-security
@@ -94,99 +93,3 @@ jobs:
           name: actionjev-${{ matrix.target }}
           path: dist/
           retention-days: 7
-  live:
-    name: Live TypeSafe integration (synthetic fixture)
-    needs: package
-    # Configure jev-api as main-only with required approval; see SECURITY.md.
-    if: >-
-      github.repository == 'AlexBabescu/ActionJev' &&
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    environment: jev-api
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: actionjev-x86_64-unknown-linux-musl
-          path: dist/
-      - name: Create tiny synthetic Git fixture
-        id: fixture
-        run: python3 scripts/live-smoke.py setup "$RUNNER_TEMP/jev-live-fixture"
-      - name: Review fixture with the real API
-        id: review
-        uses: ./
-        with:
-          typesafe-api-key: ${{ secrets.TYPESAFE_API_KEY }}
-          path: ${{ steps.fixture.outputs.path }}
-          base: ${{ steps.fixture.outputs.base }}
-          head: ${{ steps.fixture.outputs.head }}
-          policy: ${{ steps.fixture.outputs.policy }}
-          platform: none
-          comment: 'false'
-          screen-threshold: '0'
-          max-files: '1'
-          max-followups: '1'
-          concurrency: '1'
-          fail-on: none
-      - name: Verify live typed responses
-        env:
-          REPORT: ${{ steps.review.outputs.report-json }}
-          TRACE: ${{ steps.review.outputs.trace-jsonl }}
-        run: python3 scripts/live-smoke.py verify "$REPORT" "$TRACE"
-  publish:
-    name: Publish versioned action
-    needs: [package, live]
-    if: >-
-      github.repository == 'AlexBabescu/ActionJev' &&
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          pattern: actionjev-*-unknown-linux-musl
-          merge-multiple: true
-          path: dist/
-      - name: Publish immutable version and moving major alias
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash scripts/release.sh
-  consume:
-    name: Import the published action
-    needs: publish
-    if: >-
-      github.repository == 'AlexBabescu/ActionJev' &&
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: AlexBabescu/ActionJev@v0
-        id: imported
-        with:
-          typesafe-api-key: offline-test-no-api-call
-          mode: codebase
-          head: HEAD
-          dry-run: 'true'
-          comment: 'false'
-      - name: Verify imported action outputs
-        env:
-          REPORT: ${{ steps.imported.outputs.report-json }}
-        run: python3 -c 'import os,json; r=json.load(open(os.environ["REPORT"])); assert r["dry_run"] and r["api_calls"] == 0'
