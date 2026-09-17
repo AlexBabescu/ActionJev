@@ -1,0 +1,28 @@
+name: Request Jev review
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+permissions: {}
+concurrency:
+  group: jev-request-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  request:
+    # This job only dispatches a fixed workflow. Never check out PR code here.
+    if: >-
+      github.repository == 'AlexBabescu/ActionJev' &&
+      (github.event.action != 'edited' || github.event.changes.base.ref != null)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      actions: write
+    steps:
+      - name: Request an approval-gated review from main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_HOST: github.com
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,9}$ ]] || exit 1
+          gh workflow run jev-review.yml --repo AlexBabescu/ActionJev --ref main -f "pr-number=$PR_NUMBER"

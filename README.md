@@ -44,10 +44,15 @@ Start with the default `fail-on: none`. Add `fail-on: high` only after evaluatin
 
 ## Review a PR in this repository
 
-Comment `/jev review` on an open PR targeting `main` using a maintainer account
-with the admin or maintain role. The bot posts a link to the approval screen.
-Approve `jev-api` to start, then read the result in the same PR comment.
-The comment includes a workflow link and expandable screening scores.
+Opening or updating a PR automatically requests a review. PRs authored by
+`AlexBabescu` run automatically; all other authors require Alex to approve the
+`jev-approval` environment through the bot's workflow link. Forks and other base
+branches are supported without executing PR code.
+
+Maintainers can still comment `/jev review` to request a rerun. The bot updates
+its existing comment with the reviewed commit, results, and expandable scores.
+Offline tests run in PR CI; live integration and publication run in a separate
+main release workflow. See [security setup](SECURITY.md) for the two environments.
 
 The repository workflow uses the approved `main` revision and its
 [prompt policy](prompts/review.json). Edit that file through a reviewed PR to

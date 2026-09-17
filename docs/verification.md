@@ -20,8 +20,8 @@ Only trusted non-PR runs receive the maintainer repository's `TYPESAFE_API_KEY`.
 ## Review quality calibration
 
 The manual PR workflow accepts `calibrate: true`. It runs
-`scripts/calibrate-review.py` with the approved binary and policy, behind the
-`jev-api` approval gate. Four synthetic inputs compare broken and corrected
+`scripts/calibrate-review.py` with the approved binary and policy, under the
+author-based `jev-approval` policy, with the key isolated in `jev-api`. Four synthetic inputs compare broken and corrected
 rounding with and without an intentionally-flawed label. The job summary records
 correctness scores and whether an actionable finding matches the expected result.
 Fixtures are never executed and their source and API credentials are not logged.
