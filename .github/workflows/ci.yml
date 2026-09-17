@@ -1,7 +1,7 @@
 name: CI
 on:
   push:
-    branches: [main, feat/rust-jev-action]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -10,8 +10,22 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  workflow-security:
+    name: Workflow security regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Check manual-review trust boundaries
+        run: |
+          python3 -m venv "$RUNNER_TEMP/workflow-checks"
+          "$RUNNER_TEMP/workflow-checks/bin/pip" install --disable-pip-version-check 'PyYAML==6.0.3'
+          "$RUNNER_TEMP/workflow-checks/bin/python" tests/workflow_security.py
   package:
     name: Test and package (${{ matrix.target }})
+    needs: workflow-security
     strategy:
       fail-fast: false
       matrix:
@@ -83,16 +97,18 @@ jobs:
   live:
     name: Live TypeSafe integration (synthetic fixture)
     needs: package
-    # Never expose this credential to pull-request-triggered workflows or forks.
+    # Configure jev-api as main-only with required approval; see SECURITY.md.
     if: >-
       github.repository == 'AlexBabescu/ActionJev' &&
-      github.event_name != 'pull_request' &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/rust-jev-action')
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    environment: jev-api
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
@@ -125,7 +141,10 @@ jobs:
   publish:
     name: Publish versioned action
     needs: [package, live]
-    if: github.repository == 'AlexBabescu/ActionJev' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: >-
+      github.repository == 'AlexBabescu/ActionJev' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -133,6 +152,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -147,7 +167,10 @@ jobs:
   consume:
     name: Import the published action
     needs: publish
-    if: github.repository == 'AlexBabescu/ActionJev' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: >-
+      github.repository == 'AlexBabescu/ActionJev' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
