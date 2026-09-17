@@ -1,0 +1,160 @@
+name: ActionJev
+description: Bounded Rust code review using TypeSafe Jev, with GitHub and Gitea PR summaries.
+author: AlexBabescu
+branding:
+  icon: check-circle
+  color: blue
+inputs:
+  typesafe-api-key:
+    description: TypeSafe API key. Sent only to the configured TypeSafe endpoint.
+    required: true
+  token:
+    description: GitHub or Gitea token for an optional PR comment.
+    default: ${{ github.token }}
+  path:
+    description: Checked-out repository path. Only committed Git objects are reviewed.
+    default: .
+  mode:
+    description: changes or codebase
+    default: changes
+  base:
+    description: Base commit or ref; defaults to the PR base SHA. Uses its merge base with head.
+  head:
+    description: Head commit or ref; defaults to PR head SHA, otherwise HEAD.
+  platform:
+    description: auto, github, gitea, or none
+    default: auto
+  repository:
+    description: Repository owner/name; defaults to the runner context.
+    default: ${{ github.repository }}
+  pr-number:
+    description: PR number; defaults to the event payload.
+  api-url:
+    description: Git service API base. Preserve /api/v1 for Gitea or /api/v3 for GHES.
+    default: ${{ github.api_url }}
+  typesafe-url:
+    description: Complete TypeSafe evaluation endpoint, not an OpenAI-compatible chat endpoint.
+    default: https://api.typesafe.ai/v1/systemone
+  model:
+    description: Jev model ID or alias.
+    default: jev-latest
+  policy:
+    description: Optional trusted policy JSON file. Never auto-loaded from reviewed code.
+  binary-path:
+    description: Absolute path to a trusted preinstalled actionjev binary. Otherwise uses the checksum-verified bundled binary.
+  build-from-source:
+    description: Explicitly compile the trusted action source instead of using a bundled release binary. Requires Cargo.
+    default: 'false'
+  concurrency:
+    description: Maximum simultaneous model requests (1..32).
+    default: '4'
+  max-files:
+    description: Maximum reviewed files.
+    default: '50'
+  max-file-bytes:
+    description: Maximum size of each source file on either side of the change.
+    default: '48000'
+  max-total-bytes:
+    description: Total source plus evidence byte budget.
+    default: '1000000'
+  max-regions:
+    description: Maximum evidence regions per file.
+    default: '32'
+  max-followups:
+    description: Maximum screened signals to investigate further.
+    default: '24'
+  screen-threshold:
+    description: Minimum screening Noul probability.
+    default: '0.65'
+  evidence-threshold:
+    description: Minimum evidence-support Noul probability for an actionable finding.
+    default: '0.8'
+  min-confidence:
+    description: Minimum Choice and Score distribution confidence.
+    default: '0.7'
+  fail-on:
+    description: none, low, medium, high, or critical. Only actionable findings can fail this gate.
+    default: none
+  allow-incomplete:
+    description: Allow a successful exit when a coverage or follow-up budget is exhausted. Report still says incomplete.
+    default: 'false'
+  comment:
+    description: Publish a PR summary. Disable for codebase scans or read-only tokens.
+    default: 'true'
+  dry-run:
+    description: Inspect Git scope and exclusions without contacting Jev or publishing a comment.
+    default: 'false'
+  allow-insecure-http:
+    description: Explicitly permit plaintext HTTP to a trusted local service.
+    default: 'false'
+  timeout-seconds:
+    description: Per-request timeout.
+    default: '30'
+  exclude:
+    description: Additional newline-separated exclusion globs; built-in secret exclusions cannot be disabled.
+outputs:
+  report-json:
+    description: Absolute path to the JSON report.
+    value: ${{ steps.review.outputs.report-json }}
+  report-markdown:
+    description: Absolute path to the Markdown report.
+    value: ${{ steps.review.outputs.report-markdown }}
+  trace-jsonl:
+    description: Absolute path to question/answer traces without source or secrets.
+    value: ${{ steps.review.outputs.trace-jsonl }}
+  findings:
+    description: Number of actionable review candidates.
+    value: ${{ steps.review.outputs.findings }}
+  complete:
+    description: Whether the configured review scope was completed.
+    value: ${{ steps.review.outputs.complete }}
+  gate-failed:
+    description: Whether actionable findings reached the fail-on threshold.
+    value: ${{ steps.review.outputs.gate-failed }}
+runs:
+  using: composite
+  steps:
+    - name: Prepare trusted Rust binary
+      id: prepare
+      shell: bash
+      env:
+        ACTIONJEV_ACTION_PATH: ${{ github.action_path }}
+        ACTIONJEV_BINARY_PATH: ${{ inputs.binary-path }}
+        ACTIONJEV_BUILD_FROM_SOURCE: ${{ inputs.build-from-source }}
+      run: bash "$ACTIONJEV_ACTION_PATH/scripts/prepare.sh"
+    - name: Review committed code
+      id: review
+      shell: bash
+      env:
+        ACTIONJEV_ACTION_PATH: ${{ github.action_path }}
+        ACTIONJEV_BINARY: ${{ steps.prepare.outputs.binary }}
+        TYPESAFE_API_KEY: ${{ inputs.typesafe-api-key }}
+        ACTIONJEV_TOKEN: ${{ inputs.token }}
+        AJ_PATH: ${{ inputs.path }}
+        AJ_MODE: ${{ inputs.mode }}
+        AJ_BASE: ${{ inputs.base }}
+        AJ_HEAD: ${{ inputs.head }}
+        AJ_PLATFORM: ${{ inputs.platform }}
+        AJ_REPOSITORY: ${{ inputs.repository }}
+        AJ_PR_NUMBER: ${{ inputs.pr-number }}
+        AJ_API_URL: ${{ inputs.api-url }}
+        AJ_TYPESAFE_URL: ${{ inputs.typesafe-url }}
+        AJ_MODEL: ${{ inputs.model }}
+        AJ_POLICY: ${{ inputs.policy }}
+        AJ_CONCURRENCY: ${{ inputs.concurrency }}
+        AJ_MAX_FILES: ${{ inputs.max-files }}
+        AJ_MAX_FILE_BYTES: ${{ inputs.max-file-bytes }}
+        AJ_MAX_TOTAL_BYTES: ${{ inputs.max-total-bytes }}
+        AJ_MAX_REGIONS: ${{ inputs.max-regions }}
+        AJ_MAX_FOLLOWUPS: ${{ inputs.max-followups }}
+        AJ_SCREEN_THRESHOLD: ${{ inputs.screen-threshold }}
+        AJ_EVIDENCE_THRESHOLD: ${{ inputs.evidence-threshold }}
+        AJ_MIN_CONFIDENCE: ${{ inputs.min-confidence }}
+        AJ_FAIL_ON: ${{ inputs.fail-on }}
+        AJ_ALLOW_INCOMPLETE: ${{ inputs.allow-incomplete }}
+        AJ_COMMENT: ${{ inputs.comment }}
+        AJ_DRY_RUN: ${{ inputs.dry-run }}
+        AJ_ALLOW_HTTP: ${{ inputs.allow-insecure-http }}
+        AJ_TIMEOUT: ${{ inputs.timeout-seconds }}
+        AJ_EXCLUDE: ${{ inputs.exclude }}
+      run: bash "$ACTIONJEV_ACTION_PATH/scripts/run.sh"
