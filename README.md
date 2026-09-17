@@ -1,36 +1,14 @@
 # ActionJev
 
-An independent **Rust** code-review action for **GitHub Actions and Gitea Actions**, powered by [TypeSafe Jev](https://typesafe.ai/).
+An independent **Rust code-review action for GitHub Actions and Gitea Actions**, powered by [TypeSafe Jev](https://typesafe.ai/).
 
-Jev returns bounded typed decisions rather than prose. ActionJev supplies review questions, selects concrete evidence, and applies policy in Rust. It does not run a coding agent, execute the reviewed project, or ask a chat model to invent review comments.
+Published tags bundle **checksum-verified static binaries for Linux x64 and ARM64**. Consumers do not install Rust, compile the reviewer, start Docker, or download separate release assets. The only user-created secret is `TYPESAFE_API_KEY`; PR comments use the platform's automatic job token.
 
-```text
-committed Git objects
-  → per-file Noul risk screening
-  → Choice evidence-region selection
-  → focused Noul support + Choice mechanism + Score impact
-  → confidence / severity policy in Rust
-  → report.json + report.md + trace.jsonl + optional PR summary
-```
+Inspired by the problem explored by [devagrawal09/jev-review](https://github.com/devagrawal09/jev-review), but not a port or copy. Source, prompts, policy and integration are independently implemented under Apache-2.0.
 
-Inspired by the problem explored by [devagrawal09/jev-review](https://github.com/devagrawal09/jev-review), but **not a port or copy**: source code, prompts, policy and action integration are independently implemented. The repository's existing Apache-2.0 license is retained.
+## GitHub: import with your own key
 
-## What is included
-
-- PR changes computed as **merge-base(base, head) → head**, not GitHub's synthetic merge commit. Works with both platforms' checkout behavior when the required commits are present.
-- Full-codebase scans of tracked, committed source; no working-tree or untracked-file reads.
-- Rust, Python, JavaScript/TypeScript, Go, Java/Kotlin, C/C++, C#, Swift, Ruby, PHP, shell, SQL, Terraform, configuration files, and other common source extensions.
-- Configurable typed review policy, concurrency, file/byte/follow-up budgets, and three separate thresholds.
-- Explicit incomplete-scan handling; malformed responses and network failures never turn into clean reports.
-- PR summary creation/update through native GitHub/Gitea REST endpoints, with author checks and stale-head protection.
-- JSON reports and question/answer JSONL for supervisors, other agents, and policy evaluation.
-- Offline contract tests with fake Jev, GitHub, and Gitea HTTP endpoints. No paid API calls in CI.
-
-**Not included:** a web dashboard, generated natural-language explanations, automatic patches, inline review threads, compiler execution, repository indexing, or automatic approval/merge. Evidence is at hunk/region granularity, not an assertion that a particular line is defective. The tests category checks demonstrably flawed supplied tests, not missing test coverage across unseen files.
-
-## GitHub: first use
-
-Add a repository secret named `TYPESAFE_API_KEY`. Then create `.github/workflows/jev-review.yml`:
+Add a repository/action secret named `TYPESAFE_API_KEY`, then create `.github/workflows/jev-review.yml`:
 
 ```yaml
 name: Jev review
@@ -45,7 +23,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   review:
-    # Do not disclose a paid API credential to arbitrary fork workflows.
+    # Fork workflows do not receive your paid API key.
     if: ${{ !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -54,159 +32,133 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: AlexBabescu/ActionJev@feat/rust-jev-action
+      - uses: AlexBabescu/ActionJev@v0
         id: jev
         with:
           typesafe-api-key: ${{ secrets.TYPESAFE_API_KEY }}
-          fail-on: none
 ```
 
-The feature-branch ref above works before merge. For production, replace **all action refs with reviewed commit SHAs**, including this action. There is no published `v1` tag or release binary yet. The initial repository is private: enable the appropriate GitHub private-action access setting before using it from another repository you own; do not make it public merely to get the example working.
+That is the entire setup. The automatically supplied `${{ github.token }}` is used for PR comments; do not create a PAT. An imported action cannot automatically read arbitrary repository secrets, so the explicit `with:` mapping is required. Each caller supplies and pays for its own TypeSafe key; the publisher's repository secret is never bundled or shared.
 
-The action builds its trusted Rust source with `cargo build --release --locked` by default. **Cold compilation is not the fast path.** On self-hosted runners, preinstall the binary and use `binary-path`; then no Rust compiler is needed during review jobs.
+Start with the default `fail-on: none`. Add `fail-on: high` only after evaluating the reviewer on known changes. Use a release's **distribution commit SHA** instead of `@v0` for immutable action code, prompts and binary digests. `@v0.1.0` is the fixed first release; `@v0` is its moving major alias. For production, also pin checkout to a reviewed SHA.
 
-## Gitea and the preinstalled-binary path
+## Gitea
 
-Mirror this action repository to your Gitea instance, or make an explicitly authenticated trusted checkout available to the runner. A Gitea runner does not automatically receive permission to download a private GitHub action.
-
-Build once in the runner-image build process:
-
-```sh
-# In a trusted checkout pinned to the ActionJev revision you reviewed:
-cargo build --release --locked
-install -m 0755 target/release/actionjev /usr/local/bin/actionjev
-```
-
-Your job image then needs **Bash, Git, and the binary**, not Node or Python for ActionJev. A checkout action may independently require Node in the runner's job image. The job container needs outbound access to TypeSafe and your Git API. No Docker socket, privileged mode, nested Docker daemon, or Docker-in-Docker is used by this action.
-
-Example `.gitea/workflows/jev-review.yml` (replace the action host and choose your configured runner label):
+Create `.gitea/workflows/jev-review.yml`, using a runner label configured on your instance:
 
 ```yaml
 name: Jev review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
 jobs:
   review:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: https://github.com/actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: https://git.example.com/AlexBabescu/ActionJev@feat/rust-jev-action
+      - uses: https://github.com/AlexBabescu/ActionJev@v0
         with:
-          platform: gitea
-          binary-path: /usr/local/bin/actionjev
           typesafe-api-key: ${{ secrets.TYPESAFE_API_KEY }}
-          token: ${{ secrets.JEV_BOT_TOKEN }}
-          api-url: ${{ github.api_url }}
-          fail-on: none
+          platform: gitea
+          token: ${{ secrets.GITEA_TOKEN }}
 ```
 
-Use a dedicated, repository-scoped Gitea bot token that can read PR metadata, list/write issue comments, and read its own user identity. Set `comment: 'false'` to avoid all Git API calls and remove the need for a publishing token. If your server uses an internal plaintext URL, `allow-insecure-http: 'true'` is an explicit opt-in; prefer HTTPS. The standard trust roots must recognize the server certificate.
+`GITEA_TOKEN` is created by Gitea itself; **do not create another secret with that name**. Explicitly passing it makes the platform choice unambiguous. Owner/server permission limits still apply. For report-only use with read-only tokens, add `comment: 'false'`.
 
-`runs-on: ubuntu-latest` is only a label in Gitea. Configure it to select the image containing the binary. Serialize review jobs per PR in your runner/supervisor if your Gitea version does not implement workflow concurrency. Head checks reduce stale updates, but the comment API cannot atomically compare a PR head and publish a comment.
+**Access:** arbitrary unrelated users can import these examples only when ActionJev is public. Publishing tags or releases does not change repository visibility. While private, configure supported private-action sharing or mirror to an accessible Gitea repository and change the action URL. **Mirror version tags and their objects, not just main:** the packaged binaries live in those tags. No separate GitHub download token is needed for a Gitea-hosted copy.
 
-## CLI
+Runtime requirements: Linux x64/ARM64, Bash, Git, gzip, awk and sha256sum. A separate checkout action may require Node in a Gitea job image. ActionJev itself needs no Node/Python runtime, Cargo, Docker-in-Docker, Docker socket or privileged mode.
 
-Runtime dependencies: Git plus the compiled Rust executable. The implementation uses Rustls for HTTPS rather than a system OpenSSL dependency.
+## Review workflow
 
-```sh
-export TYPESAFE_API_KEY='your-key'
-
-# Committed PR/branch changes; unresolved or shallow refs are an error.
-actionjev --repo /work/project --base origin/main --head HEAD
-
-# Full tracked-codebase scan; the default head is HEAD.
-actionjev --repo /work/project --mode codebase
-
-# Preview exclusions and scope without API requests. This is not a clean review.
-actionjev --repo /work/project --base origin/main --dry-run
-
-# Optional CI gate; confidence and support thresholds also apply.
-actionjev --repo /work/project --base origin/main --fail-on high
-
-# Additional exclusion globs; repeat --exclude as needed.
-actionjev --repo /work/project --base origin/main --exclude '**/generated/**'
+```text
+Committed Git objects
+  -> per-file Noul risk screening
+  -> Choice evidence-region selection
+  -> focused Noul support + Choice mechanism + Score impact
+  -> confidence/severity policy in Rust
+  -> JSON, Markdown, JSONL and optional PR summary
 ```
 
-GitHub/Gitea event files supply PR base/head/repository metadata in CI. CLI overrides take precedence. Outside a PR event, changes mode requires `--base`; it never guesses a potentially incorrect branch. `--head` defaults to `HEAD` outside a PR event. Full-codebase mode still reads committed Git objects, not the working tree.
+Jev returns typed judgments, not generated review prose. ActionJev selects existing evidence and applies policy in Rust. Findings are **review candidates, not proven defects**. Confidence describes the model's answer distribution, not an empirically calibrated probability that a bug exists.
 
-### Policy and default budgets
+PR scope is `merge-base(base, head) -> head`, independent of GitHub's synthetic merge checkout. Both commit histories must be available: use `fetch-depth: 0`. Full-codebase mode reviews eligible tracked source at the selected commit. Working-tree edits, untracked files and symlink targets are not reviewed, and project code is never executed.
 
-| Input / CLI flag | Default | Meaning |
-|---|---:|---|
-| `concurrency` | 4 | Simultaneous model requests |
-| `max-files` | 50 | Reviewed source files |
-| `max-file-bytes` | 48,000 | Limit per file on either side |
-| `max-total-bytes` | 1,000,000 | Source plus evidence bytes |
-| `max-regions` | 32 | Diff hunks / source regions per file |
-| `max-followups` | 24 | Screened signals followed further |
-| `screen-threshold` | 0.65 | Noul probability needed to investigate |
-| `evidence-threshold` | 0.80 | Noul support needed for an actionable candidate |
-| `min-confidence` | 0.70 | Minimum of evidence, mechanism and severity confidence |
-| `fail-on` | `none` | Optional severity gate |
-| `allow-incomplete` | `false` | Whether budget-limited scans may exit successfully |
-| `timeout-seconds` | 30 | Timeout per HTTP attempt |
+Categories include correctness, security, reliability, compatibility and demonstrably flawed supplied tests. Common Rust, Python, JavaScript/TypeScript, Go, Java/Kotlin, C/C++, Swift, shell, SQL, Terraform and configuration files are supported. There is no dashboard, generated prose, patch generation, automatic approval, inline review threads or compiler execution.
 
-The `comment` action input defaults to `true`; the CLI publishes only with `--comment`. For `mode: codebase`, set `comment: 'false'` in the action. `typesafe-url` is the **complete** evaluation endpoint, defaulting to `https://api.typesafe.ai/v1/systemone`; this is not an OpenAI-compatible API.
+## Configuration
 
-Severity is Jev's probability-weighted position on five descriptive levels: 0 no demonstrated harm, 1 narrow edge case, 2 limited ordinary-operation failure, 3 important-operation failure or protected-data compromise, 4 broad irreversible loss or unrestricted compromise. Gate comparisons use the unrounded score: `low >= 1`, `medium >= 2`, `high >= 3`, `critical >= 4`. These thresholds are starter policy, **not empirically validated accuracy guarantees**.
+See [action.yml](action.yml) for the complete input/output contract.
 
-Edit [prompts/review.json](prompts/review.json) and rebuild to change the bundled policy. Alternatively, pass `policy` / `--policy` pointing to a trusted JSON file. Do not use an untrusted PR's policy in a privileged workflow. The report records a SHA-256 of the exact policy bytes and traces retain the questions/answers so another agent can evaluate policy changes. No prompts are changed automatically.
+| Input | Default | Purpose |
+|---|---|---|
+| `typesafe-api-key` | Required | Caller-owned API key, passed only to TypeSafe. |
+| `token` | Automatic job token | Optional override for PR-comment authentication. |
+| `mode` | `changes` | `changes` or full committed `codebase` scan. |
+| `base`, `head` | PR payload | Explicit commit/ref overrides; `head` otherwise defaults to `HEAD`. |
+| `path` | `.` | Checked-out Git repository. |
+| `platform` | `auto` | `github`, `gitea`, `none` or auto-detection. |
+| `api-url` | Runner context | Git service API, including `/api/v1` for Gitea. |
+| `model` | `jev-latest` | TypeSafe model ID/alias. |
+| `policy` | Embedded JSON policy | Explicit trusted policy file; never auto-loaded from reviewed code. |
+| `concurrency` | `4` | Maximum simultaneous model requests. |
+| `max-files` | `50` | Eligible file budget. |
+| `max-file-bytes` | `48000` | Per-file source limit. |
+| `max-total-bytes` | `1000000` | Total source plus evidence budget. |
+| `max-regions` | `32` | Evidence regions per file. |
+| `max-followups` | `24` | Screened signals investigated. |
+| `screen-threshold` | `0.65` | Noul threshold for follow-up. |
+| `evidence-threshold` | `0.8` | Support required for an actionable finding. |
+| `min-confidence` | `0.7` | Choice and Score confidence required for gating. |
+| `fail-on` | `none` | `none`, `low`, `medium`, `high`, `critical`. |
+| `allow-incomplete` | `false` | Explicitly permit successful exit when a coverage budget is exhausted. |
+| `comment` | `true` | Create/update a PR summary; disable for codebase scans. |
+| `dry-run` | `false` | Inspect scope without calling Jev or posting comments. |
+| `exclude` | Empty | Additional newline-separated glob exclusions. |
+| `binary-path` | Bundled release binary | Optional absolute trusted executable path. |
+| `build-from-source` | `false` | Explicit Cargo build of trusted action source. |
 
-### Exit codes
+Only actionable findings can trigger a severity gate. Uncertain findings are reported but not gated. Budget-limited scans remain marked incomplete; API and validation failures are errors, not clean reviews.
 
-| Code | Meaning |
-|---:|---|
-| 0 | Completed without a configured gate failure, or explicitly allowed incomplete/dry run |
-| 1 | Operational/configuration/API error; not a clean review |
-| 2 | Incomplete review due to a budget limit; CLI argument errors may also use this code |
-| 3 | An actionable finding reached the configured severity threshold |
+The editable [policy](prompts/review.json) contains guidance, typed questions, mechanism choices and severity levels. Reports record its SHA-256; supervisors can inspect policy and question/answer traces without reverse-engineering an opaque agent session.
 
-Reports are written before severity/incomplete exits and before PR publishing. An operational failure during model evaluation currently aborts without a partial report; inspect the failing job rather than interpreting absent output as success. Do not use `continue-on-error` to hide these statuses in a required check.
+### Outputs
 
-## Outputs and review logs
+`report-json`, `report-markdown` and `trace-jsonl` are absolute paths in a fresh runner-temporary directory. `findings` counts actionable candidates; `complete` and `gate-failed` expose status. Markdown is also appended to the runner's job summary. PR comments are author-checked before update, paginated, and suppressed when the PR head has moved.
 
-The action exposes `report-json`, `report-markdown`, `trace-jsonl`, `findings`, `complete`, and `gate-failed`. Report files live in a new runner temporary directory. A runner job summary is also written when its output file is available.
+`report.json` contains source evidence and should be protected like the repository. `trace.jsonl` contains questions, typed answers, timing and usage, not credentials or source state. Upload reports as artifacts only under an appropriate access/retention policy; artifact upload is deliberately not a runtime dependency for Gitea compatibility.
 
-`report.json` contains the reviewed commit/merge base, screening matrix, thresholds, policy hash, exclusions/coverage limitations, findings with exact evidence regions, uncertainty, and API call/token counts. `trace.jsonl` contains each stage's questions and typed answers, including distributions and the actual returned model ID. It is an application audit log, not hidden model reasoning. Traces intentionally omit request state/source and credentials; **the report's evidence snippets still contain private source code**.
+## Local/source use
 
-The action does not upload artifacts automatically. Persist the files using an artifact action supported by your GitHub/Gitea runner, or have your supervisor consume them locally. Retain reports with the same access controls as the repository.
+Source branches, including `main`, do not contain generated binary blobs. Use a published tag/distribution SHA for normal action imports. Explicit `build-from-source: 'true'` requires an installed Rust toolchain. A preinstalled `binary-path` overrides the bundled executable.
 
-## Security and limitations
-
-Reviewed source is sent to the configured TypeSafe service. Secret-like filenames, key files, common credentials files, dependency locks, generated directories and unsupported extensions are excluded; symlinks and submodules are never followed. **This is not a secret scanner:** a credential embedded in a normal source file can still be sent. Review the scope and add exclusions before using it on sensitive repositories.
-
-Only bounded Git object reads and built-in Git diff operations are used. No project build, shell script, package install, Git hook, textconv or external diff command is executed by the reviewer. Arguments are passed directly to Git, paths are literal, HTTP redirects are disabled, credentials are sent only to explicitly configured service origins, and HTTP response bodies are withheld from error logs. A Git or runner vulnerability is outside this protection boundary.
-
-Do not run the action or its source-build step from an untrusted local PR checkout with privileged secrets. Prefer a reviewed external action SHA and a preinstalled binary. The examples skip fork PRs rather than using `pull_request_target` with an untrusted checkout. For external contributions, design a separate trusted fetch/review/publish workflow and approval policy.
-
-The reviewer selects at most one evidence region for each followed file/category signal. It does not prove program correctness, analyze an entire dependency graph, or establish model accuracy. A full-codebase scan means all eligible committed files **within configured limits**, not exhaustive static analysis. Binary, unsupported and intentionally excluded files remain outside that scope. Raise budgets explicitly for larger repositories.
-
-HTTP inference and reads use up to three attempts for transient errors, with exponential backoff and bounded `Retry-After` handling; an inference retry can incur another billed request. Comment creation is not retried automatically after ambiguous network failures. Comment discovery checks up to 20 pages and refuses to create a possible duplicate when that budget is exhausted. Use a dedicated bot identity consistently.
-
-## Development
-
-```sh
-cargo test --locked --all-targets
-cargo clippy --locked --all-targets -- -D warnings
+```bash
 cargo build --release --locked
-python3 tests/e2e.py target/release/actionjev
+export TYPESAFE_API_KEY='your-key'
+./target/release/actionjev --repo /path/to/repo --base origin/main --head HEAD
+./target/release/actionjev --repo /path/to/repo --mode codebase --head HEAD
 ```
 
-The Python test harness is a development dependency only. It creates temporary Git repositories and local mock services; no real model credential or paid API is needed. CI builds the Rust binary and runs these checks. See [docs/architecture.md](docs/architecture.md) for the data flow and [docs/verification.md](docs/verification.md) for what is and is not tested.
+Secrets are read from environment variables, not command-line arguments. Exit status is `0` for success, `1` for runtime/configuration errors, `2` for a severity gate and `3` for an incomplete scan unless explicitly allowed. CLI argument parsing may also use exit status `2`.
 
-## Primary references
+## Security and verification
 
-- [TypeSafe HTTP API](https://docs.typesafe.ai/api)
-- [Choice, Score and Noul](https://docs.typesafe.ai/primitives)
-- [Confidence semantics](https://docs.typesafe.ai/confidence)
-- [GitHub issue-comment API](https://docs.github.com/en/rest/issues/comments)
-- [Gitea API](https://docs.gitea.com/api/1.25/)
-- [Reference experiment: jev-review](https://github.com/devagrawal09/jev-review)
+Eligible source is sent to the configured TypeSafe service. Common secret filenames and symlinks are excluded, but filename exclusions are **not a secret scanner**. Review TypeSafe's data handling before using private code. Reports with snippets remain sensitive.
 
-License: [Apache-2.0](LICENSE).
+Do not use `pull_request_target` to run an untrusted PR's workflow, build scripts, action implementation or policy with secrets. Keep the action pinned and the workflow trusted; do not run arbitrary project code in the credential-bearing job. Custom endpoints/policies are trusted inputs. Credentials are never committed or included in release assets.
+
+CI runs 15 Rust unit tests, 23 offline Git/HTTP integration tests, launcher tests, Clippy, static builds and composite-action checks on both Linux architectures. Pull-request CI is offline. Trusted maintainer CI additionally uses the repository key for a small synthetic live fixture; it does not send the ActionJev codebase. Model-quality calibration and live Gitea deployment are separate from these checks.
+
+See [architecture](docs/architecture.md), [distribution/release process](docs/distribution.md), [TypeSafe API](https://docs.typesafe.ai/api), [confidence semantics](https://docs.typesafe.ai/confidence), [Gitea action URLs](https://docs.gitea.com/usage/actions/comparison/) and [job-token permissions](https://docs.gitea.com/usage/actions/token-permissions/).
+
+## License
+
+[Apache-2.0](LICENSE).
