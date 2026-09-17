@@ -179,18 +179,34 @@ class WorkflowTests(unittest.TestCase):
 
     def test_review_pins_action_and_never_loads_pr_checkout(self):
         steps = self.review["jobs"]["review"]["steps"]
-        self.assertEqual(len(steps), 3)
+        self.assertEqual(len(steps), 6)
         self.assertEqual(steps[0]["with"]["ref"], "${{ github.sha }}")
         self.assertFalse(steps[0]["with"]["persist-credentials"])
         self.assertEqual(steps[1]["run"], "python3 trusted/scripts/prepare-pr-review.py")
-        self.assertNotIn("secrets.", json.dumps(steps[:2]))
-        self.assertEqual(steps[2]["uses"], "AlexBabescu/ActionJev@9ec4a7cd1fc7c879fc566d92ec5c889dfbc57b60")
-        inputs = steps[2]["with"]
+        self.assertNotIn("secrets.", json.dumps(steps[:4]))
+        self.assertEqual(steps[3]["working-directory"], "trusted")
+        self.assertEqual(steps[3]["run"], "cargo build --release --locked")
+        self.assertEqual(steps[4]["if"], "inputs.calibrate")
+        self.assertEqual(steps[5]["uses"], "./trusted")
+        inputs = steps[5]["with"]
         self.assertNotIn("build-from-source", inputs)
-        self.assertNotIn("policy", inputs)
+        self.assertEqual(inputs["policy"], "${{ github.workspace }}/trusted/prompts/review.json")
+        self.assertEqual(inputs["binary-path"], "${{ github.workspace }}/trusted/target/release/actionjev")
         self.assertEqual(inputs["typesafe-url"], "https://api.typesafe.ai/v1/systemone")
         self.assertEqual(inputs["api-url"], "https://api.github.com")
         self.assertEqual(inputs["path"], "${{ steps.pr.outputs.path }}")
+
+    def test_command_and_status_jobs_never_receive_model_secrets(self):
+        command = yaml.safe_load((ROOT / ".github/workflows/jev-command.yml").read_text())
+        self.assertEqual(command.get("on", command.get(True)), {"issue_comment": {"types": ["created"]}})
+        self.assertNotIn("secrets.", json.dumps(command))
+        self.assertNotIn("environment", command["jobs"]["request"])
+        self.assertEqual(command["jobs"]["request"]["permissions"], {"contents": "read", "actions": "write"})
+        for name in ("request", "finish"):
+            job = self.review["jobs"][name]
+            self.assertNotIn("secrets.", json.dumps(job))
+            self.assertNotIn("environment", job)
+            self.assertEqual(job["steps"][0]["with"]["ref"], "${{ github.sha }}")
 
     def test_ordinary_ci_does_not_reference_secrets(self):
         for name in ("workflow-security", "package"):

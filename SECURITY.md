@@ -1,6 +1,6 @@
 # Public-repository CI and secret protection
 
-## Required repository settings — apply these before merging the workflow changes
+## Required repository settings
 
 These controls live in GitHub settings, not in Git. Merely naming an environment
 in YAML does **not** create its protection rules. An automatically created
@@ -40,7 +40,7 @@ GitHub does not reveal existing secret values; use the original value you stored
 securely or issue a replacement key in TypeSafe. Never commit or paste the key
 into an issue, pull request or workflow.
 
-Both the existing live synthetic integration test and the new manual PR reviewer
+Both the live synthetic integration test and the PR reviewer
 reference `jev-api`. A main-branch release now waits for approval of the live job,
 since publishing already depends on that job. PR test/package jobs do not use
 this environment and receive no TypeSafe credential.
@@ -70,45 +70,67 @@ isolation from an earlier malicious process on the same persistent machine.
 
 ## Review a PR in this repository
 
-After the workflow is merged and the settings above are configured:
+A maintainer with the repository admin or maintain role can comment `/jev review`
+on an open PR targeting `main`. The command must be the whole comment. Edited
+comments and commands from other users do not start a review.
 
-1. Open **Actions → Jev PR review (manual) → Run workflow**.
-2. Select **main**, enter an open PR number targeting main, and run it.
-3. Approve the pending **jev-api** environment deployment after checking the
-   workflow revision. The job reviews the PR and creates/updates its summary.
+The command workflow checks the author's current repository permission through
+GitHub's API and dispatches `jev-review.yml` at `main`. It has no environment or
+TypeSafe secret. It only needs read access to code and write access to Actions.
 
-Or use an authenticated GitHub CLI with repository write access:
+The review workflow posts a comment with a link to its run. Open that link and
+approve `jev-api` after inspecting the workflow revision. The bot updates the
+same comment with its findings, screening scores and reviewed commit. If a review
+fails or approval is rejected, a separate job without the TypeSafe key updates
+the comment. Force-cancelling a workflow can also stop that cleanup job; use the
+run link to check the authoritative status.
+
+You can also open Actions, select Jev PR review, and run it on `main` with a PR
+number, or use the CLI:
 
 ```sh
 gh workflow run jev-review.yml --repo AlexBabescu/ActionJev --ref main -f pr-number=123
 ```
 
-External PRs do not trigger this live workflow. It can deliberately review a
-fork PR: only Git objects are fetched, not a working tree. It will refuse a
-closed PR, a non-main target, invalid identifiers or a head changed during fetch.
-The action rechecks the PR head before publishing its summary. A PR can still
-change immediately after that check; every report records the reviewed SHA.
+Select the optional `calibrate` input to check the real model against four small
+rounding examples, including broken and corrected code with and without a
+fixture label. Calibration makes additional API calls behind the same approval
+gate. It must detect the broken examples and avoid correctness findings on the
+corrected examples before continuing to the PR review. It does not establish
+general review accuracy.
 
 ### Trust boundaries
 
-- The only trigger is `workflow_dispatch`, which requires repository write access.
-- The workflow job permits only this repository and the `main` execution ref.
-  The independently configured environment branch rule is the enforcement layer.
-- The preparation script is read from the trusted workflow commit, never a PR.
-- The PR is fetched from a fixed public GitHub origin into a fresh **bare Git
-  repository**, without checkout, hooks, submodules, test execution or builds.
-- The reviewer uses the SHA-pinned, packaged v0.1.0 action commit
-  `9ec4a7cd1fc7c879fc566d92ec5c889dfbc57b60`, not `./` from a PR or a mutable tag.
-- No untrusted binary, artifact, cache, endpoint, shell command or policy is loaded.
-- The TypeSafe key is passed only to the pinned review action, not the preparation
-  script. A public Git fetch receives no inherited workflow credentials.
-- Model output is data, never a shell command. Only fixed API endpoints are used.
-- `fail-on: none` makes model findings advisory. Transport failures and incomplete
-  reviews can still fail the job. The report states which commit was reviewed.
+- The credential-bearing workflow accepts only `workflow_dispatch` on `main`.
+  Do not add `pull_request_target`, `issue_comment`, or `workflow_run` to it.
+- The separate `issue_comment` workflow executes default-branch code and only
+  dispatches the fixed main workflow after a current admin/maintain check.
+- The environment independently restricts access to `main` and requires approval.
+- Checkout uses the immutable workflow commit, `${{ github.sha }}`, in `trusted/`.
+  The job builds this approved source with `cargo build --release --locked`.
+  No TypeSafe credential is passed to the build step. Dependencies and build
+  scripts are part of the trusted code that must be reviewed before merge.
+- The PR is fetched from a fixed GitHub origin into a bare repository, without
+  checking out or executing its files, hooks, submodules or build scripts.
+- The action, binary and policy come from `trusted/`, never from the PR. The
+  workflow fixes both API endpoints and passes credentials only to the steps
+  that need them. A public Git fetch receives no inherited credentials.
+- Model output is data, never a shell command. Findings are advisory and the
+  bot checks that the PR head is still current before publishing a result.
+- Ordinary PR CI has no TypeSafe key. This self-review source build does not
+  change how consumers use prebuilt, checksum-verified release binaries.
 
-The Rust reviewer is unchanged. The Python standard-library preparation helper is
-specific to this repository's GitHub-hosted workflow; it is not a new dependency
-of the reusable Rust action or of Gitea consumers.
+### Customize the review
+
+Edit `prompts/review.json` through a reviewed PR. The repository workflow passes
+that file from its trusted checkout, so edits take effect after merge without
+changing a release pin. Do not accept a policy path, endpoint or executable path
+from a PR comment or from files in the PR being reviewed.
+
+The policy defines guidance, review questions, defect mechanisms and severity.
+Some follow-up questions remain in `src/review.rs`. Thresholds and budgets are
+workflow inputs to the action. Review screening details before changing a
+threshold; lowering it increases API calls and can increase false positives.
 
 ## Limits and residual risk
 
@@ -132,15 +154,15 @@ isolation before accepting external contributions.
 
 `tests/workflow_security.py` checks metadata validation, fixed-endpoint requests,
 redirect refusal, response limits, credential-free Git subprocess environments,
-manual/main-only guards, protected-environment declarations, SHA pinning and
-secret-free ordinary CI. A real temporary Git fixture verifies that PR files and
+manual/main-only guards, protected-environment declarations, trusted-source
+paths and secret-free ordinary CI. `tests/review_commands.py` checks command
+authorization, fixed dispatch targets and bot-owned comment updates. A real temporary Git fixture verifies that PR files and
 symlinks are stored as Git objects rather than checked out. These are regression
 checks, not a proof of security or verification of the repository's UI settings.
 
 ```sh
-python3 -m venv .venv-workflow-checks
-.venv-workflow-checks/bin/pip install 'PyYAML==6.0.3'
-.venv-workflow-checks/bin/python tests/workflow_security.py
+uv run --with PyYAML==6.0.3 python tests/workflow_security.py
+uv run python tests/review_commands.py
 ```
 
 ## References

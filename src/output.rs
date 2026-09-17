@@ -18,21 +18,39 @@ fn escape(value: &str) -> String {
     out
 }
 pub fn markdown(report: &Report) -> String {
-    let status = if report.dry_run { "DRY RUN — no model review performed" } else if !report.complete { "INCOMPLETE — review budget or coverage limit reached" } else { "Completed within the configured scope" };
-    let mut text = format!("{MARKER}\n## ActionJev review\n\n**{status}**\n\nCommit: `{}`\n\n{} files reviewed · {} actionable review candidates · {} uncertain candidates · {} API calls\n\n", report.head, report.scanned_files, report.actionable_count(), report.findings.len() - report.actionable_count(), report.api_calls);
-    text.push_str("These are structured model judgments, not proven defects. Confidence describes the model's distribution, not a measured probability of correctness.\n\n");
+    let status = if report.dry_run { "Dry run. No model review performed." } else if !report.complete { "Review incomplete. A budget or coverage limit was reached." } else if report.scanned_files == 0 { "No eligible files to review." } else if report.actionable_count() > 0 { "Review complete. Potential issues need your attention." } else { "Review complete. No actionable issues reported." };
+    let mut text = format!("{MARKER}\n## ActionJev review\n\n**{status}**\n\nReviewed commit: `{}`\n\nFiles reviewed: {}. Potential issues: {}. Uncertain findings: {}. API calls: {}.\n\n", report.head, report.scanned_files, report.actionable_count(), report.findings.len() - report.actionable_count(), report.api_calls);
+    if let (Ok(repo), Ok(run)) = (std::env::var("GITHUB_REPOSITORY"), std::env::var("GITHUB_RUN_ID")) {
+        if repo.split('/').count() == 2 && repo.bytes().all(|b| b.is_ascii_alphanumeric() || b"/-_.".contains(&b)) && !run.is_empty() && run.bytes().all(|b| b.is_ascii_digit()) {
+            text.push_str(&format!("[View workflow run](https://github.com/{repo}/actions/runs/{run})\n\n"));
+        }
+    }
     if !report.findings.is_empty() {
         text.push_str("| Evidence | Category / mechanism | Severity (0–4) | Support | Confidence | Disposition |\n|---|---|---:|---:|---:|---|\n");
         for f in &report.findings {
             let (side, start, lines) = if f.evidence.new_lines > 0 { ("new", f.evidence.new_start, f.evidence.new_lines) } else { ("old", f.evidence.old_start, f.evidence.old_lines) };
-            let row = format!("| {} — {} lines {}–{} | {} / {} | {:.2} | {:.2} | {:.2} | {} |\n", escape(&f.path), side, start, start.saturating_add(lines.saturating_sub(1)), escape(&f.dimension), escape(&f.mechanism), f.severity, f.evidence_probability, f.confidence, if f.actionable { "Investigate" } else { "Uncertain; not gated" });
+            let row = format!("| {}, {} lines {} to {} | {} / {} | {:.2} | {:.2} | {:.2} | {} |\n", escape(&f.path), side, start, start.saturating_add(lines.saturating_sub(1)), escape(&f.dimension), escape(&f.mechanism_description), f.severity, f.evidence_probability, f.confidence, if f.actionable { "Investigate" } else { "Uncertain; not gated" });
             if text.len() + row.len() > 48_000 { text.push_str("\nAdditional findings omitted from this comment; see report.json.\n"); break; }
             text.push_str(&row);
         }
-    } else if !report.dry_run {
-        text.push_str("No findings survived evidence selection. This is not a guarantee that the code is defect-free.\n");
+    } else if !report.dry_run && report.scanned_files > 0 {
+        if report.followed_signals == 0 {
+            text.push_str("No potential issues passed screening. The reviewer did not perform evidence selection or a detailed follow-up.\n");
+        } else {
+            text.push_str("The reviewer investigated potential issues but did not establish a defect mechanism from the supplied evidence.\n");
+        }
     }
-    text.push_str(&format!("\n{} files excluded or skipped. {} signals followed. JSON and question/answer traces contain the detailed review.\n", report.skipped.len(), report.followed_signals));
+    text.push_str(&format!("\nFiles excluded or skipped: {}. Potential issues investigated: {}.\n", report.skipped.len(), report.followed_signals));
+    if !report.signals.is_empty() {
+        text.push_str(&format!("\n<details>\n<summary>Screening details</summary>\n\nScores at or above {:.3} qualify for follow-up, subject to the review budget. These are model scores, not measured bug probabilities.\n\n| File | Category | Score |\n|---|---|---:|\n", report.thresholds["screen"].as_f64().unwrap_or_default()));
+        for s in &report.signals {
+            let row = format!("| {} | {} | {:.3} |\n", escape(&s.path), escape(&s.dimension), s.probability);
+            if text.len() + row.len() > 54_000 { text.push_str("\nAdditional scores omitted.\n"); break; }
+            text.push_str(&row);
+        }
+        text.push_str(&format!("\nPolicy SHA-256: `{}`\n\n</details>\n", report.policy_sha256));
+    }
+    text.push_str("\nReview findings need human verification. A review with no findings does not prove the code is correct.\n");
     text
 }
 fn create(path: &Path, bytes: &[u8]) -> Result<()> {

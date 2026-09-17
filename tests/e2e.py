@@ -181,6 +181,16 @@ class Contracts(unittest.TestCase):
         report, _, _ = self.run_review(service)
         self.assertEqual(report["findings"], [])
         self.assertEqual(report["api_calls"], 1)
+    def test_screened_out_comment_explains_where_review_stopped(self):
+        service = Service()
+        service.screen_none = True
+        service.head = self.repo.head
+        self.run_review(service, extra=[("--comment", None), ("--platform", "github"), ("--repository", "a/b"), ("--pr-number", "7"), ("--api-url", "{url}/api/v3")])
+        body = service.posts[0][1]["body"]
+        self.assertIn("No potential issues passed screening", body)
+        self.assertIn("0.650", body)
+        self.assertNotIn("survived evidence selection", body)
+        self.assertIn("Screening details", body)
     def test_dry_run_no_calls(self):
         report, _, _ = self.run_review(extra=[("--dry-run", None)])
         self.assertTrue(report["dry_run"])
