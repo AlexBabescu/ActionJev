@@ -28,7 +28,7 @@ else
   expected="$(awk -v name="$asset" '$2 == name { hash=$1; count++ } END { if (count != 1) exit 1; print hash }' "$action_path/dist/SHA256SUMS")" || fail 'Missing or duplicate package checksum'
   [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || fail 'Invalid package checksum'
   # The digest is committed alongside the action, not downloaded from a mutable release.
-  (cd "$action_path/dist"; printf '%s  %s\n' "$expected" "$asset" | sha256sum --check --status) || fail 'Packaged binary checksum mismatch'
+  (cd "$action_path/dist"; printf '%s  %s\n' "$expected" "$asset" | sha256sum -c > /dev/null) || fail 'Packaged binary checksum mismatch'
   directory="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/actionjev-bin.XXXXXXXX")"
   trap 'rm -rf -- "$directory"' EXIT
   binary="$directory/actionjev"

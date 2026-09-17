@@ -79,6 +79,11 @@ class Installer(unittest.TestCase):
         self.assertEqual((self.root / "cargo-called").read_text().strip(), f"{self.action}:build --release --locked")
     def test_boolean_validation(self):
         self.run_prepare(1, ACTIONJEV_BUILD_FROM_SOURCE="yes")
+    @unittest.skipUnless(shutil.which("busybox"), "BusyBox is not installed")
+    def test_busybox_checksum(self):
+        self.bundle()
+        self.exe("sha256sum", "#!/bin/sh\nexec " + shutil.which("busybox") + ' sha256sum "$@"\n')
+        self.run_prepare()
     def test_gitea_output(self):
         self.bundle()
         del self.env["GITHUB_OUTPUT"]
