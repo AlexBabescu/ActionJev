@@ -41,9 +41,9 @@ def number(value):
 def validate_pr(pr):
     data = api(f"/pulls/{pr}")
     if (data.get("number") != pr or data.get("state") != "open"
-            or data.get("base", {}).get("ref") != "main"
             or data.get("base", {}).get("repo", {}).get("full_name") != REPOSITORY):
-        raise ValueError("Expected an open PR targeting ActionJev/main")
+        raise ValueError("Expected an open PR targeting ActionJev")
+    return data
 
 
 def dispatch(event):
@@ -77,7 +77,7 @@ def run_url():
     return f"https://github.com/{REPOSITORY}/actions/runs/{run}"
 
 
-def status(pr, failed=False):
+def status(pr, failed=False, approval_required=True):
     url = run_url()
     pending = f"<!-- actionjev:pending:{os.environ['GITHUB_RUN_ID']} -->"
     comment = None
@@ -97,8 +97,10 @@ def status(pr, failed=False):
         if not comment or pending not in comment["body"]:
             return
         message = "Review did not publish a result. The PR may have changed, the job may have failed or been cancelled, or approval may have been rejected. Check the workflow run before retrying."
+    elif approval_required:
+        message = "Review requested. Open the workflow run and approve the jev-approval environment to start. This comment will update when the review finishes."
     else:
-        message = "Review requested. Open the workflow run and approve the jev-api environment to start. This comment will update when the review finishes."
+        message = "Review starting automatically for the repository owner's PR. This comment will update when the review finishes."
     body = f"{MARKER}\n## ActionJev review\n\n{message}\n\n[View workflow run]({url})\n"
     if not failed:
         body += pending + "\n"
@@ -121,9 +123,15 @@ def main():
         print("Review requested." if dispatch(json.loads(event_path.read_text())) else "Comment is not an authorized review command.")
     elif command in ("request", "failure") and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
         pr = number(os.environ.get("PR_NUMBER", ""))
+        required = True
         if command == "request":
-            validate_pr(pr)
-        status(pr, failed=command == "failure")
+            data = validate_pr(pr)
+            # The PR author's immutable account ID controls approval, never the
+            # event sender, dispatch actor, branch name, or author association.
+            required = data.get("user", {}).get("id") != 695992
+            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                output.write(f"approval-required={str(required).lower()}\n")
+        status(pr, failed=command == "failure", approval_required=required)
     else:
         raise ValueError("Unexpected command or event")
 

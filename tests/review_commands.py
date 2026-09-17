@@ -2,6 +2,8 @@
 """Exercise command authorization and comment updates without GitHub access."""
 import importlib.util
 import os
+import tempfile
+import sys
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -59,6 +61,23 @@ class Commands(unittest.TestCase):
             with patch.object(helper, "api", side_effect=[{"permission": "admin"}, pr]) as api, self.assertRaises(ValueError):
                 helper.dispatch(event())
             self.assertEqual(api.call_count, 2)
+
+    def test_approval_uses_fresh_pr_author_not_dispatch_actor(self):
+        for author, expected in ((695992, "false"), (123, "true"), (None, "true")):
+            with self.subTest(author=author), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "outputs"
+                env = {"GITHUB_REPOSITORY": helper.REPOSITORY, "GITHUB_REF": "refs/heads/main",
+                       "GITHUB_EVENT_NAME": "workflow_dispatch", "PR_NUMBER": "3",
+                       "GITHUB_OUTPUT": str(output), "GITHUB_ACTOR": "AlexBabescu"}
+                with patch.dict(os.environ, env, clear=True), patch.object(sys, "argv", ["helper", "request"]), patch.object(helper, "api", return_value={**PR, "user": {"id": author}}), patch.object(helper, "status") as status:
+                    helper.main()
+                self.assertEqual(output.read_text(), f"approval-required={expected}\n")
+                self.assertEqual(status.call_args.kwargs["approval_required"], expected == "true")
+
+    def test_any_base_branch_in_same_repository_is_allowed(self):
+        pr = {**PR, "base": {"ref": "feature", "repo": {"full_name": helper.REPOSITORY}}}
+        with patch.object(helper, "api", return_value=pr):
+            self.assertEqual(helper.validate_pr(3), pr)
 
     @patch.dict(os.environ, {"GITHUB_RUN_ID": "42"})
     def test_progress_updates_only_bot_comment(self):

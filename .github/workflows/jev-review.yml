@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       pr-number:
-        description: Open PR number targeting main (forks are supported as data only)
+        description: Open PR number (all base branches and forks are supported as data only)
         type: string
         required: true
       calibrate:
@@ -24,6 +24,8 @@ concurrency:
 
 jobs:
   request:
+    outputs:
+      approval-required: ${{ steps.request.outputs.approval-required }}
     if: github.repository == 'AlexBabescu/ActionJev' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 3
@@ -36,13 +38,27 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Post approval link on the PR
+        id: request
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pr-number }}
         run: python3 scripts/review_github.py request
-  review:
+  approve:
     needs: request
-    if: github.repository == 'AlexBabescu/ActionJev' && github.ref == 'refs/heads/main'
+    if: needs.request.outputs.approval-required != 'false'
+    environment: jev-approval
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions: {}
+    steps:
+      - run: echo 'External PR review approved.'
+  review:
+    needs: [request, approve]
+    if: >-
+      always() && !cancelled() && needs.request.result == 'success' &&
+      (needs.approve.result == 'success' ||
+       (needs.approve.result == 'skipped' && needs.request.outputs.approval-required == 'false')) &&
+      github.repository == 'AlexBabescu/ActionJev' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: jev-api

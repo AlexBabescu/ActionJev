@@ -39,12 +39,16 @@ class InputTests(unittest.TestCase):
         data["head"]["ref"] = "$(do-not-execute)"
         self.assertEqual(helper.validate_metadata(data, 17), ("a" * 40, "b" * 40))
 
-    def test_wrong_repository_or_branch_rejected(self):
-        for field, value in (("ref", "feature"), ("repo", {"full_name": "attacker/fork"})):
-            data = example()
-            data["base"][field] = value
-            with self.assertRaises(ValueError):
-                helper.validate_metadata(data, 17)
+    def test_other_base_branches_are_data_only(self):
+        data = example()
+        data["base"]["ref"] = "feature/$(never-execute)"
+        self.assertEqual(helper.validate_metadata(data, 17), ("a" * 40, "b" * 40))
+
+    def test_wrong_repository_rejected(self):
+        data = example()
+        data["base"]["repo"] = {"full_name": "attacker/fork"}
+        with self.assertRaises(ValueError):
+            helper.validate_metadata(data, 17)
 
     def test_wrong_number_or_closed_pr_rejected(self):
         for field, value in (("number", 18), ("state", "closed")):
@@ -161,6 +165,8 @@ class WorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.review = yaml.safe_load((ROOT / ".github/workflows/jev-review.yml").read_text())
+        cls.release = yaml.safe_load((ROOT / ".github/workflows/main.yml").read_text())
+        cls.auto = yaml.safe_load((ROOT / ".github/workflows/jev-auto.yml").read_text())
         cls.ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
 
     def test_review_is_manual_only(self):
@@ -215,15 +221,70 @@ class WorkflowTests(unittest.TestCase):
             self.assertNotIn("environment", job)
         self.assertEqual(self.ci["permissions"], {"contents": "read"})
 
+    def test_auto_dispatch_has_no_checkout_or_model_access(self):
+        triggers = self.auto.get("on", self.auto.get(True))
+        self.assertEqual(set(triggers), {"pull_request_target"})
+        self.assertEqual(set(triggers["pull_request_target"]["types"]),
+                         {"opened", "synchronize", "reopened", "ready_for_review", "edited"})
+        self.assertEqual(self.auto["permissions"], {})
+        job = self.auto["jobs"]["request"]
+        self.assertEqual(job["permissions"], {"actions": "write"})
+        self.assertNotIn("environment", job)
+        self.assertNotIn("secrets.", json.dumps(job))
+        self.assertEqual(len(job["steps"]), 1)
+        step = job["steps"][0]
+        self.assertNotIn("uses", step)
+        self.assertNotIn("${{", step["run"])
+        self.assertIn('--repo AlexBabescu/ActionJev --ref main', step["run"])
+        self.assertIn('^\u005b1-9][0-9]{0,9}$', step["run"])
+
+    def test_dispatch_command_rejects_shell_injection(self):
+        command = self.auto["jobs"]["request"]["steps"][0]["run"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake = root / "gh"
+            fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$CAPTURE"\n')
+            fake.chmod(0o755)
+            capture = root / "args"
+            env = {"PATH": f"{root}:{os.defpath}", "CAPTURE": str(capture)}
+            result = subprocess.run(["bash", "-e", "-c", command], env={**env, "PR_NUMBER": "17"}, capture_output=True)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(capture.read_text().splitlines(), ["workflow", "run", "jev-review.yml", "--repo", "AlexBabescu/ActionJev", "--ref", "main", "-f", "pr-number=17"])
+            capture.unlink()
+            for number in ("", "0", "1; touch bad", "$(touch bad)", "1\nx=2"):
+                result = subprocess.run(["bash", "-e", "-c", command], env={**env, "PR_NUMBER": number}, capture_output=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(capture.exists())
+
+    def test_external_approval_cannot_be_skipped_by_review(self):
+        approval = self.review["jobs"]["approve"]
+        self.assertEqual(approval["environment"], "jev-approval")
+        self.assertEqual(approval["if"], "needs.request.outputs.approval-required != 'false'")
+        job = self.review["jobs"]["review"]
+        self.assertEqual(job["needs"], ["request", "approve"])
+        self.assertIn("needs.request.result == 'success'", job["if"])
+        self.assertIn("needs.approve.result == 'success'", job["if"])
+        self.assertIn("needs.approve.result == 'skipped' && needs.request.outputs.approval-required == 'false'", job["if"])
+        self.assertIn("!cancelled()", job["if"])
+
+    def test_release_jobs_are_absent_from_pr_checks(self):
+        self.assertEqual(set(self.ci["jobs"]), {"workflow-security", "package"})
+        self.assertEqual(set(self.ci.get("on", self.ci.get(True))), {"pull_request", "workflow_call"})
+        self.assertEqual(set(self.release.get("on", self.release.get(True))), {"push", "workflow_dispatch"})
+        self.assertEqual(self.release["jobs"]["checks"]["uses"], "./.github/workflows/ci.yml")
+        self.assertEqual(self.release["jobs"]["approve"]["environment"], "jev-approval")
+        self.assertIn("approve", self.release["jobs"]["live"]["needs"])
+        self.assertIn("checks", self.release["jobs"]["publish"]["needs"])
+
     def test_live_and_publish_are_main_only_not_pr_or_old_feature_branch(self):
         for name in ("live", "publish", "consume"):
-            guard = self.ci["jobs"][name]["if"]
+            guard = self.release["jobs"][name]["if"]
             self.assertIn("github.ref == 'refs/heads/main'", guard)
             self.assertIn("github.event_name == 'push'", guard)
             self.assertIn("github.event_name == 'workflow_dispatch'", guard)
             self.assertNotIn("feat/", guard)
-        self.assertEqual(self.ci["jobs"]["live"]["environment"], "jev-api")
-        self.assertIn("live", self.ci["jobs"]["publish"]["needs"])
+        self.assertEqual(self.release["jobs"]["live"]["environment"], "jev-api")
+        self.assertIn("live", self.release["jobs"]["publish"]["needs"])
 
 
 if __name__ == "__main__":

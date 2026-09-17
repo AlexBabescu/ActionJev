@@ -40,14 +40,16 @@ before enabling model calls.
 
 ### Try it on this repository
 
-A maintainer with the admin or maintain role can comment `/jev review` on an open
-PR targeting `main`. The command must be the whole comment. The bot links to the
-workflow run; approve the `jev-api` environment there to start the review.
-Results replace the pending bot comment.
+Opening or updating a PR automatically requests a review, including forks and
+PRs targeting other branches. PRs authored by `AlexBabescu` run automatically.
+For other authors, the bot posts a workflow link where Alex approves
+`jev-approval` before model calls begin. Results replace the pending bot comment.
 
-You can also run **Jev PR review** from the Actions tab with a PR number. This
-repository builds the approved main revision, so its results can include changes
-that have not reached a published release yet.
+Maintainers can comment `/jev review` to request a rerun, or run **Jev PR review**
+from Actions with a PR number. Reruns use the same author-based approval rule.
+The reviewer uses trusted `main` code, so it can include changes that have not
+reached a published release. Offline checks run on PRs; live release tests and
+publishing run in a separate main workflow.
 
 ## How a review works
 
