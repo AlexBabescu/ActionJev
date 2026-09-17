@@ -1,0 +1,42 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Resolve dependencies
+        run: cargo generate-lockfile
+      - name: Unit tests
+        run: cargo test --all-targets
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Release binary
+        run: cargo build --release
+      - name: End-to-end contract tests
+        run: python3 tests/e2e.py target/release/actionjev
+      - name: Package build evidence
+        if: always()
+        run: |
+          mkdir -p build-evidence
+          cp Cargo.lock build-evidence/ 2>/dev/null || true
+          cp target/release/actionjev build-evidence/ 2>/dev/null || true
+          cargo fmt
+          tar --exclude=.git --exclude=target --exclude=build-evidence -czf build-evidence/source.tar.gz .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: actionjev-build-evidence
+          path: build-evidence/
+          retention-days: 7
