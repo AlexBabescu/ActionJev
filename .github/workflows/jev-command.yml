@@ -1,0 +1,26 @@
+name: Jev review command
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+jobs:
+  request:
+    if: >-
+      github.repository == 'AlexBabescu/ActionJev' &&
+      github.event.issue.pull_request &&
+      github.event.comment.body == '/jev review'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify maintainer permission and dispatch trusted main workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/review_github.py dispatch

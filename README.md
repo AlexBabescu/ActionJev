@@ -42,6 +42,24 @@ The automatically supplied `${{ github.token }}` is used for PR comments; do not
 
 Start with the default `fail-on: none`. Add `fail-on: high` only after evaluating the reviewer on known changes. Use a release's **distribution commit SHA** instead of `@v0` for immutable action code, prompts and binary digests. `@v0.1.0` is the fixed first release; `@v0` is its moving major alias. For production, also pin checkout to a reviewed SHA.
 
+## Review a PR in this repository
+
+Comment `/jev review` on an open PR targeting `main` using a maintainer account
+with the admin or maintain role. The bot posts a link to the approval screen.
+Approve `jev-api` to start, then read the result in the same PR comment.
+The comment includes a workflow link and expandable screening scores.
+
+The repository workflow uses the approved `main` revision and its
+[prompt policy](prompts/review.json). Edit that file through a reviewed PR to
+change the guidance, questions, defect categories or severity definitions.
+For other repositories using the released action, pass a trusted JSON file with
+`policy: /absolute/path/to/review.json`. Never load a policy from the PR being
+reviewed. Follow-up instructions are also defined in `src/review.rs`.
+
+The optional `calibrate` input in the manual workflow checks known broken and
+corrected rounding examples against the real model. See [security and review
+setup](SECURITY.md) for permissions, approval and calibration details.
+
 ## Gitea
 
 Create `.gitea/workflows/jev-review.yml`, using a runner label configured on your instance:
@@ -136,7 +154,7 @@ Eligible source is sent to TypeSafe. Common secret filenames and symlinks are ex
 
 Do not use `pull_request_target` to run an untrusted PR's workflow, build scripts, action implementation or policy with secrets. Keep the action pinned and the workflow trusted; do not run arbitrary project code in the credential-bearing job. Custom endpoints/policies are trusted inputs. Credentials are never committed or included in release assets.
 
-CI covers 15 Rust unit tests, 23 offline Git/HTTP tests, 13 launcher tests (BusyBox-specific coverage skips when unavailable), Clippy, native static builds and composite checks on both Linux architectures. PR CI is offline. Trusted maintainer CI uses the repository key only for a tiny synthetic live fixture, not the ActionJev codebase. Model-quality calibration and a live Gitea deployment are separate checks.
+CI covers Rust unit tests, offline Git/HTTP tests, workflow authorization tests and 13 launcher tests (BusyBox-specific coverage skips when unavailable), Clippy, native static builds and composite checks on both Linux architectures. PR CI is offline. Trusted maintainer CI uses the repository key only for a tiny synthetic live fixture, not the ActionJev codebase. Model-quality calibration and a live Gitea deployment are separate checks.
 
 See [verification](docs/verification.md), [architecture](docs/architecture.md), [distribution/releases](docs/distribution.md), [TypeSafe API](https://docs.typesafe.ai/api), [confidence semantics](https://docs.typesafe.ai/confidence), [Gitea action URLs](https://docs.gitea.com/usage/actions/comparison/) and [job-token permissions](https://docs.gitea.com/usage/actions/token-permissions/).
 

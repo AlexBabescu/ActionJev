@@ -23,6 +23,7 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/workflow-checks"
           "$RUNNER_TEMP/workflow-checks/bin/pip" install --disable-pip-version-check 'PyYAML==6.0.3'
           "$RUNNER_TEMP/workflow-checks/bin/python" tests/workflow_security.py
+          python3 tests/review_commands.py
   package:
     name: Test and package (${{ matrix.target }})
     needs: workflow-security

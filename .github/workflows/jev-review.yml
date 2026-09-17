@@ -1,4 +1,4 @@
-name: Jev PR review (manual)
+name: Jev PR review
 run-name: "Jev review of PR #${{ inputs.pr-number }}"
 
 # Do not add pull_request_target, issue_comment or workflow_run triggers here.
@@ -10,6 +10,10 @@ on:
         description: Open PR number targeting main (forks are supported as data only)
         type: string
         required: true
+      calibrate:
+        description: Also check known broken and corrected rounding examples with the real model
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -19,7 +23,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  request:
+    if: github.repository == 'AlexBabescu/ActionJev' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Post approval link on the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+        run: python3 scripts/review_github.py request
   review:
+    needs: request
     if: github.repository == 'AlexBabescu/ActionJev' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -40,11 +62,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pr-number }}
         run: python3 trusted/scripts/prepare-pr-review.py
-      - name: Review using a pinned, prebuilt trusted action
-        id: jev
-        # Packaged v0.1.0 commit, not its mutable major-version tag or PR code.
-        uses: AlexBabescu/ActionJev@9ec4a7cd1fc7c879fc566d92ec5c889dfbc57b60
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
+          toolchain: stable
+      - name: Build the approved main revision without API credentials
+        working-directory: trusted
+        run: cargo build --release --locked
+      - name: Check model quality against broken and corrected examples
+        if: inputs.calibrate
+        env:
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+        run: python3 trusted/scripts/calibrate-review.py trusted/target/release/actionjev trusted/prompts/review.json
+      - name: Review using the approved main revision and policy
+        id: jev
+        uses: ./trusted
+        with:
+          binary-path: ${{ github.workspace }}/trusted/target/release/actionjev
+          policy: ${{ github.workspace }}/trusted/prompts/review.json
           typesafe-api-key: ${{ secrets.TYPESAFE_API_KEY }}
           token: ${{ github.token }}
           path: ${{ steps.pr.outputs.path }}
@@ -62,3 +96,21 @@ jobs:
           max-followups: '24'
       # Intentionally no PR artifacts/caches, shell tools, or PR-supplied policy.
       # The action writes a job summary and updates its PR summary comment.
+  finish:
+    needs: [request, review]
+    if: always() && needs.request.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Explain any run that left its PR comment pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+        run: python3 scripts/review_github.py failure

@@ -119,7 +119,7 @@ pub fn run(args: &Args, snapshot: Snapshot, policy: &Policy, policy_hash: String
         let region = file.regions.iter().find(|r| r.id == selected).context("unknown evidence region")?;
         let focused = json!({"mode":args.mode,"file":file.path,"question":dimension.statement,"selected_evidence":region,"source_at_reviewed_commit":file.source});
         let reply = jev.ask(&file.path, &format!("judge:{}:{}", dimension.id, region.id), &focused, json!({
-            "supported":{"type":"noul","instructions":instructions(policy,"Does the selected evidence establish a specific reachable failure for the supplied question? Reject hypothetical assumptions, unrelated existing defects, intentional changes, and problems requiring unseen code to substantiate.")},
+            "supported":{"type":"noul","instructions":instructions(policy,"Does the selected evidence establish a specific reachable failure for the supplied question? Trace a concrete input against the visible contract. Reject hypothetical assumptions, unrelated existing defects, and problems requiring unseen code to substantiate. A deliberate change is a defect when it contradicts the visible contract.")},
             "mechanism":{"type":"choice","instructions":instructions(policy,"Which supplied mechanism explains the failure supported by the selected evidence and question? Select none when no mechanism is established."),"criteria":policy.mechanisms},
             "severity":{"type":"score","instructions":instructions(policy,"What functional impact is supported by the selected evidence for the supplied question? Use the no-harm level when a defect is not established. Do not assume the most dangerous possible deployment."),"criteria":policy.severity_levels}
         }))?;
