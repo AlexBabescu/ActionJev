@@ -1,4 +1,30 @@
-# Public-repository CI and secret protection
+# Security
+
+## Report a vulnerability
+
+Use [GitHub private vulnerability reporting](https://github.com/AlexBabescu/ActionJev/security/advisories/new)
+for suspected credential exposure, authorization bypasses, or other security
+issues in ActionJev. Include the affected revision, reproduction steps, and
+expected versus actual behavior. Do not include live keys or private source.
+Avoid a public issue until maintainers have assessed the report.
+
+If a credential has been exposed, revoke or rotate it at its provider. Removing
+it from the latest commit or deleting a comment does not invalidate it.
+
+## Data sent and stored
+
+Eligible source and selected evidence go to the configured TypeSafe endpoint.
+GitHub or Gitea receives the rendered comment when publication is enabled.
+`report.json` contains source evidence. Traces omit source state and credentials
+but include paths, questions, and answers, so review their contents before sharing.
+Filename exclusions do not detect secrets embedded in ordinary source files.
+
+## Public-repository controls
+
+The following setup describes this repository's maintainer-approved workflow.
+Consumers should adapt it to their own ownership and contribution model. The
+[setup guide](docs/setup.md) distinguishes automatic same-repository reviews from
+reviews requiring protected-environment approval.
 
 ## Required repository settings
 
@@ -41,7 +67,7 @@ securely or issue a replacement key in TypeSafe. Never commit or paste the key
 into an issue, pull request or workflow.
 
 Both the live synthetic integration test and the PR reviewer
-reference `jev-api`. A main-branch release now waits for approval of the live job,
+reference `jev-api`. A main-branch release waits for approval of the live job,
 since publishing already depends on that job. PR test/package jobs do not use
 this environment and receive no TypeSafe credential.
 
@@ -138,7 +164,7 @@ There is no setting that makes a secret safe after giving it to arbitrary code.
 A repository owner/admin, a compromised trusted maintainer or a malicious change
 merged into main can alter a privileged workflow or trusted binary. Approval and
 log masking cannot prevent deliberately malicious code from exfiltrating a key.
-Use a separate TypeSafe key for this repository, set provider-side spend/rate
+Use a separate TypeSafe key for this repository, set provider-side spend and rate
 limits where available, and revoke/rotate immediately after suspected exposure.
 
 Repository publication alone does not publish Actions secrets, but logs, committed
