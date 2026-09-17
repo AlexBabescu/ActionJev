@@ -34,8 +34,8 @@ def validate_metadata(data, number):
     if not isinstance(data, dict) or data.get("number") != number or data.get("state") != "open":
         raise ValueError("Expected the requested open pull request")
     base, head = data.get("base", {}), data.get("head", {})
-    if base.get("repo", {}).get("full_name") != REPOSITORY or base.get("ref") != "main":
-        raise ValueError("Only pull requests targeting ActionJev/main can be reviewed")
+    if base.get("repo", {}).get("full_name") != REPOSITORY:
+        raise ValueError("Only pull requests targeting ActionJev can be reviewed")
     commits = (base.get("sha"), head.get("sha"))
     if not all(isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha) for sha in commits):
         raise ValueError("GitHub returned an invalid commit ID")

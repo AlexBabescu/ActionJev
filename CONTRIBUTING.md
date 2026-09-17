@@ -43,8 +43,8 @@ binaries, or local output directories. Release automation creates packaged
 binaries separately. Keep dependencies and lockfile updates deliberate.
 
 Changes to prompts, dependencies, workflow permissions, endpoints, credential
-handling, and code executed with secrets need particular care. PR CI is offline;
-maintainers approve any live model run after checking the trusted revision.
+handling, and code executed with secrets need particular care. PR CI is offline. Jev reviews use trusted main code, and Alex approves reviews
+for other authors before model calls begin. Owner-authored PRs run automatically.
 
 ## Report a bug
 

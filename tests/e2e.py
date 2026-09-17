@@ -190,7 +190,7 @@ class Contracts(unittest.TestCase):
         self.assertIn("No potential issues passed screening", body)
         self.assertIn("0.650", body)
         self.assertNotIn("survived evidence selection", body)
-        self.assertIn("Screening details", body)
+        self.assertIn("<summary>Screening scores and API usage</summary>", body)
     def test_dry_run_no_calls(self):
         report, _, _ = self.run_review(extra=[("--dry-run", None)])
         self.assertTrue(report["dry_run"])

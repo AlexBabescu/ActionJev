@@ -18,8 +18,9 @@ generate that prose. Use the selected code region as a starting point for human
 investigation, and verify a suspected defect with a concrete example or test.
 
 Several categories can select the same region and mechanism. They are separate
-assessments and do not establish that several distinct bugs exist. Presentation
-can vary by version; the JSON report retains the category-level records.
+assessments and do not establish that several distinct bugs exist. The comment groups matching file regions and mechanisms into one concern; the
+JSON report retains all category-level records. A group is actionable when at
+least one of its individual assessments meets every threshold.
 
 ## Scores
 
@@ -78,7 +79,8 @@ comments; changing the Markdown cannot change its author.
 
 ### Why does the bot still show a pending review?
 
-Open the run link. In this repository the model job waits for `jev-api` approval.
+Open the run link. In this repository reviews of non-owner PRs wait for Alex to approve
+`jev-approval`. Owner-authored PRs start automatically.
 Normal failures update the pending comment, but force-cancelling a workflow can
 also stop its cleanup job. The workflow run is the authoritative status.
 
