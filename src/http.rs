@@ -14,9 +14,17 @@ impl Http {
     pub fn new(timeout: u64, allow_http: bool) -> Result<Self> {
         Ok(Self { client: Client::builder().timeout(Duration::from_secs(timeout)).connect_timeout(Duration::from_secs(10)).redirect(Policy::none()).user_agent(concat!("ActionJev/", env!("CARGO_PKG_VERSION"))).build()?, attempts: AtomicUsize::new(0), allow_http })
     }
-    /// POST comment creation is deliberately not retried: a timeout may have committed it.
     pub fn json(&self, method: Method, url: &str, token: &str, scheme: &str, body: Option<&Value>, retry: bool) -> Result<Value> {
-        let url = checked_url(url, self.allow_http)?;
+        self.send(method, checked_url(url, self.allow_http)?, token, scheme, body, retry)
+    }
+    /// Only this method adds known pagination parameters to a validated base URL.
+    pub fn page(&self, url: &str, token: &str, scheme: &str, page: usize, gitea: bool) -> Result<Value> {
+        let mut url = checked_url(url, self.allow_http)?;
+        url.query_pairs_mut().append_pair("page", &page.to_string()).append_pair(if gitea { "limit" } else { "per_page" }, "50");
+        self.send(Method::GET, url, token, scheme, None, true)
+    }
+    /// POST comment creation is deliberately not retried: a timeout may have committed it.
+    fn send(&self, method: Method, url: Url, token: &str, scheme: &str, body: Option<&Value>, retry: bool) -> Result<Value> {
         let count = if retry { 3 } else { 1 };
         for attempt in 0..count {
             self.attempts.fetch_add(1, Ordering::Relaxed);
@@ -26,8 +34,7 @@ impl Http {
                 auth.set_sensitive(true); request = request.header(reqwest::header::AUTHORIZATION, auth);
             }
             if let Some(value) = body { request = request.json(value); }
-            let response = request.send();
-            match response {
+            match request.send() {
                 Err(_) if attempt + 1 < count => { thread::sleep(Duration::from_millis(250 << attempt)); continue; }
                 Err(_) => bail!("HTTP transport failed (response body and credentials withheld)"),
                 Ok(response) => {
@@ -51,7 +58,6 @@ impl Http {
 fn retry_delay(value: &str) -> Option<Duration> {
     value.parse::<u64>().ok().map(Duration::from_secs).or_else(|| httpdate::parse_http_date(value).ok().map(|t| t.duration_since(SystemTime::now()).unwrap_or_default()))
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

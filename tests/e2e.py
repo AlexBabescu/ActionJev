@@ -10,7 +10,7 @@ import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 BINARY = str(Path(sys.argv.pop(1)).resolve()) if len(sys.argv) > 1 else str(Path("target/release/actionjev").resolve())
 
@@ -40,6 +40,7 @@ class Service:
         self.requests = []
         self.posts = []
         self.patches = []
+        self.pages = []
         self.confidence = 0.95
         self.screen_all = False
         self.screen_none = False
@@ -98,13 +99,18 @@ def server(service):
             service.patches.append((self.path, self.body()))
             self.reply({"id": 42})
         def do_GET(self):
-            path = urlsplit(self.path).path
+            request = urlsplit(self.path)
+            path = request.path
             if path.endswith("/pulls/7"):
                 self.reply({"head": {"sha": service.head}})
             elif path.endswith("/user"):
                 self.reply({"login": "review-bot"})
             elif path.endswith("/comments"):
-                self.reply(service.comments)
+                query = parse_qs(request.query)
+                page = int(query.get("page", ["1"])[0])
+                size = int(query.get("limit", query.get("per_page", ["50"]))[0])
+                service.pages.append(query)
+                self.reply(service.comments[(page - 1) * size:page * size])
             else:
                 self.reply({"error": "unexpected route"}, 404)
     http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -261,6 +267,7 @@ class Contracts(unittest.TestCase):
         self.run_review(service, extra=options)
         self.assertEqual(len(service.posts), 1)
         self.assertEqual(service.posts[0][0], "/gitea/api/v1/repos/a/b/issues/7/comments")
+        self.assertIn("limit", service.pages[0])
         service.posts.clear()
         service.comments = [{"id": 42, "user": {"login": "review-bot"}, "body": "<!-- actionjev:review:v1 --> old"}]
         self.run_review(service, extra=options)
@@ -271,6 +278,7 @@ class Contracts(unittest.TestCase):
         service.head = self.repo.head
         self.run_review(service, extra=[("--comment", None), ("--platform", "github"), ("--repository", "a/b"), ("--pr-number", "7"), ("--api-url", "{url}/api/v3")])
         self.assertEqual(service.posts[0][0], "/api/v3/repos/a/b/issues/7/comments")
+        self.assertIn("per_page", service.pages[0])
     def test_stale_review_not_published(self):
         service = Service()
         service.head = "0" * 40
@@ -284,6 +292,15 @@ class Contracts(unittest.TestCase):
         self.run_review(service, extra=[("--comment", None), ("--platform", "gitea"), ("--repository", "a/b"), ("--pr-number", "7"), ("--api-url", "{url}/api/v1")])
         self.assertEqual(len(service.posts), 1)
         self.assertEqual(service.patches, [])
+    def test_comment_on_second_page_is_updated(self):
+        service = Service()
+        service.head = self.repo.head
+        service.comments = [{"id": i, "user": {"login": "other"}, "body": "discussion"} for i in range(50)]
+        service.comments.append({"id": 51, "user": {"login": "review-bot"}, "body": "<!-- actionjev:review:v1 -->"})
+        self.run_review(service, extra=[("--comment", None), ("--platform", "gitea"), ("--repository", "a/b"), ("--pr-number", "7"), ("--api-url", "{url}/api/v1")])
+        self.assertEqual(len(service.patches), 1)
+        self.assertEqual(service.posts, [])
+        self.assertEqual(len(service.pages), 2)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

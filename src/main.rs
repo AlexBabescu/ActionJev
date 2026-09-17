@@ -19,8 +19,8 @@ fn execute(args: Args) -> Result<u8> {
     let (report, traces) = review::run(&args, snapshot, &policy, hash)?;
     let directory = output::write_reports(&args, &report, &traces)?;
     eprintln!("ActionJev: reports written to {}", directory.display());
-    if args.comment && !args.dry_run {
-        if !output::comment(&args, &ci, &report)? { eprintln!("ActionJev: PR head changed; stale report was not published"); }
+    if args.comment && !args.dry_run && !output::comment(&args, &ci, &report)? {
+        eprintln!("ActionJev: PR head changed; stale report was not published");
     }
     if !report.complete && !args.allow_incomplete && !args.dry_run { return Ok(2); }
     if report.gate_failed(&args) { return Ok(3); }

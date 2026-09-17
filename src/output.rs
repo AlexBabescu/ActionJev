@@ -85,20 +85,29 @@ pub fn comment(args: &Args, ci: &CiContext, report: &Report) -> Result<bool> {
     if latest.pointer("/head/sha").and_then(Value::as_str) != Some(report.head.as_str()) { return Ok(false); }
     let identity = match http.json(Method::GET, &url(&["user"])? , &token, scheme, None, false) {
         Ok(user) => user.get("login").and_then(Value::as_str).map(str::to_owned),
+        // GitHub's built-in installation token cannot call GET /user.
         Err(_) if ci.platform == Platform::Github => Some("github-actions[bot]".into()),
         Err(_) => None,
     };
+    // Without an authenticated identity, do not edit a comment on the strength of a marker alone.
+    ensure!(identity.is_some(), "cannot identify comment author; use a bot token permitted to read its own user");
     let comments_url = url(&["repos", owner, name, "issues", &number, "comments"])?;
     let mut existing = None;
-    // Build pagination in the request URL; validate base before adding these trusted parameters.
-    // The transport disallows arbitrary query strings, so use the unpaginated endpoint here.
-    // A capped first page avoids unbounded reads; absent matches result in a fresh comment.
-    let comments = http.json(Method::GET, &comments_url, &token, scheme, None, true)?;
-    for entry in comments.as_array().context("invalid comments response")? {
-        if identity.as_deref().is_some_and(|id| entry.pointer("/user/login").and_then(Value::as_str) == Some(id)) && entry.get("body").and_then(Value::as_str).is_some_and(|body| body.starts_with(MARKER)) {
-            existing = entry.get("id").and_then(Value::as_u64); break;
+    for page in 1..=20 {
+        let comments = http.page(&comments_url, &token, scheme, page, ci.platform == Platform::Gitea)?;
+        let entries = comments.as_array().context("invalid comments response")?;
+        for entry in entries {
+            if identity.as_deref().is_some_and(|id| entry.pointer("/user/login").and_then(Value::as_str) == Some(id)) && entry.get("body").and_then(Value::as_str).is_some_and(|body| body.starts_with(MARKER)) {
+                existing = Some(entry.get("id").and_then(Value::as_u64).context("invalid comment ID")?); break;
+            }
         }
+        if existing.is_some() || entries.is_empty() { break; }
+        ensure!(page < 20, "comment pagination limit reached; refusing to create a possible duplicate");
     }
+    // Recheck after pagination. The API has no atomic compare-head-and-comment operation;
+    // serialize review jobs per PR to avoid concurrent create/update races.
+    let latest = http.json(Method::GET, &pr_url, &token, scheme, None, true)?;
+    if latest.pointer("/head/sha").and_then(Value::as_str) != Some(report.head.as_str()) { return Ok(false); }
     let body = json!({"body":markdown(report)});
     if let Some(id) = existing {
         http.json(Method::PATCH, &url(&["repos", owner, name, "issues", "comments", &id.to_string()])?, &token, scheme, Some(&body), true)?;
