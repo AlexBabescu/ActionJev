@@ -1,5 +1,7 @@
 # Architecture
 
+[Documentation home](../README.md#documentation)
+
 ActionJev has a Rust CLI core and a Bash composite-action adapter. There is no persistent service, database, Docker dependency, or JavaScript runtime in the reviewer.
 
 ## Modules
@@ -12,13 +14,13 @@ ActionJev has a Rust CLI core and a Bash composite-action adapter. There is no p
 | `jev.rs` | TypeSafe `/v1/systemone`; typed response decoding; probability/option validation; question/answer traces |
 | `review.rs` | Load/hash policy, bounded worker pool, screen/locate/judge orchestration, uncertainty and gate policy |
 | `output.rs` | JSON/Markdown/JSONL files, runner outputs, native GitHub/Gitea PR comments |
-| `scripts/` | Compile trusted action source or select a preinstalled binary; map action inputs to safe argv |
+| `scripts/` | Select and verify a bundled binary, explicitly compile trusted source, or use a preinstalled binary; map inputs to argv |
 
 ## Evidence and review stages
 
 A changes scan resolves base and head to actual commit IDs and uses their merge base. Both platform event formats can provide the two refs. All source reads come from Git blobs, not the checked-out worktree. Deletions use the old blob; new/current files use the head blob. Renames are treated as delete/add, avoiding heuristic rename matching. Full-codebase mode walks the selected commit tree and partitions eligible source into overlapping 80-line regions with a 70-line stride.
 
-Each file sends one request containing independent Noul questions for the configured categories. Signals above the screening threshold are ordered deterministically and a bounded number are followed. A Choice call selects an existing evidence-region ID or `none`. A subsequent call, focused on that selected evidence, independently evaluates support, defect mechanism, and impact. No question in a single batch is allowed to depend on another answer from that same batch.
+Each file sends one request containing independent Noul questions for the configured categories. Signals at or above the screening threshold are ordered deterministically and a bounded number are followed. A Choice call selects an existing evidence-region ID or `none`. A subsequent call, focused on that selected evidence, independently evaluates support, defect mechanism, and impact. No question in a single batch is allowed to depend on another answer from that same batch.
 
 The minimum of the three Choice/Score confidence values is retained as a conservative workflow rule, not a statistically calibrated combined probability. Noul support and initial risk probability remain separate values. Low-confidence candidates appear as uncertain and never fail a severity gate. A `none` evidence or mechanism answer suppresses the candidate. Source context is bounded and file-local; it does not silently pretend to understand unseen callers or tests.
 
@@ -39,3 +41,11 @@ Exclusions are recorded. File/region/byte/follow-up limits make `complete=false`
 ## Policy evaluation by other agents
 
 Store the source revision, model returned in the trace, policy SHA-256, report and trace together. A supervisor can compare candidate outcomes against human labels, edit a trusted copy of `prompts/review.json`, and submit that change through normal review. The runner does not grant the model tool access or permit it to modify prompts, thresholds, code, or Git state.
+
+## Comment presentation
+
+The renderer uses predefined mechanism names and selected code locations. It does
+not request or invent free-form explanations. Multiple category assessments may
+refer to the same mechanism in the same code region. Counts of assessments must
+not be interpreted as counts of distinct defects. See [review results](review-results.md)
+for score semantics and [configuration](configuration.md) for output fields.
