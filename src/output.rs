@@ -21,7 +21,7 @@ pub fn markdown(report: &Report) -> String {
     let status = if report.dry_run { "Dry run. No model review performed." } else if !report.complete { "Review incomplete. A budget or coverage limit was reached." } else if report.scanned_files == 0 { "No eligible files to review." } else if report.actionable_count() > 0 { "Review complete. Potential issues need your attention." } else { "Review complete. No actionable issues reported." };
     let mut text = format!("{MARKER}\n## ActionJev review\n\n**{status}**\n\nReviewed commit: `{}`\n\nFiles reviewed: {}. Potential issues: {}. Uncertain findings: {}. API calls: {}.\n\n", report.head, report.scanned_files, report.actionable_count(), report.findings.len() - report.actionable_count(), report.api_calls);
     if let (Ok(repo), Ok(run)) = (std::env::var("GITHUB_REPOSITORY"), std::env::var("GITHUB_RUN_ID")) {
-        if repo.split('/').count() == 2 && repo.bytes().all(|b| b.is_ascii_alphanumeric() || b"/-_.".contains(&b)) && !run.is_empty() && run.bytes().all(|b| b.is_ascii_digit()) {
+        if std::env::var("GITHUB_SERVER_URL").as_deref() == Ok("https://github.com") && repo.split('/').count() == 2 && repo.bytes().all(|b| b.is_ascii_alphanumeric() || b"/-_.".contains(&b)) && !run.is_empty() && run.bytes().all(|b| b.is_ascii_digit()) {
             text.push_str(&format!("[View workflow run](https://github.com/{repo}/actions/runs/{run})\n\n"));
         }
     }

@@ -286,9 +286,10 @@ class Contracts(unittest.TestCase):
     def test_github_comment_endpoint(self):
         service = Service()
         service.head = self.repo.head
-        self.run_review(service, extra=[("--comment", None), ("--platform", "github"), ("--repository", "a/b"), ("--pr-number", "7"), ("--api-url", "{url}/api/v3")])
+        self.run_review(service, extra=[("--comment", None), ("--platform", "github"), ("--repository", "a/b"), ("--pr-number", "7"), ("--api-url", "{url}/api/v3")], env_extra={"GITHUB_SERVER_URL": "https://github.com", "GITHUB_REPOSITORY": "a/b", "GITHUB_RUN_ID": "42"})
         self.assertEqual(service.posts[0][0], "/api/v3/repos/a/b/issues/7/comments")
         self.assertIn("per_page", service.pages[0])
+        self.assertIn("[View workflow run](https://github.com/a/b/actions/runs/42)", service.posts[0][1]["body"])
     def test_stale_review_not_published(self):
         service = Service()
         service.head = "0" * 40
