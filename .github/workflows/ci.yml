@@ -18,8 +18,6 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
-      - name: Resolve dependencies
-        run: cargo generate-lockfile
       - name: Unit tests
         run: cargo test --locked --all-targets
       - name: Clippy
@@ -28,7 +26,7 @@ jobs:
         run: cargo build --release --locked
       - name: End-to-end contract tests
         run: python3 tests/e2e.py target/release/actionjev
-      - name: Composite action smoke test
+      - name: Composite preinstalled-binary smoke test
         id: smoke
         uses: ./
         with:
@@ -38,19 +36,31 @@ jobs:
           comment: 'false'
           dry-run: 'true'
           typesafe-api-key: offline-test-no-api-call
+      - name: Composite source-build smoke test
+        id: source-smoke
+        uses: ./
+        with:
+          mode: codebase
+          head: HEAD
+          comment: 'false'
+          dry-run: 'true'
+          typesafe-api-key: offline-test-no-api-call
       - name: Verify action outputs
         env:
           REPORT: ${{ steps.smoke.outputs.report-json }}
           TRACE: ${{ steps.smoke.outputs.trace-jsonl }}
+          SOURCE_REPORT: ${{ steps.source-smoke.outputs.report-json }}
         run: |
           test -f "$REPORT"
           test -f "$TRACE"
-          python3 -c 'import json,os; r=json.load(open(os.environ["REPORT"])); assert r["dry_run"] and r["api_calls"] == 0'
+          test -f "$SOURCE_REPORT"
+          python3 -c 'import json,os; reports=[json.load(open(os.environ[key])) for key in ("REPORT", "SOURCE_REPORT")]; assert all(r["dry_run"] and r["api_calls"] == 0 for r in reports)'
+          git diff --exit-code -- Cargo.lock
       - name: Package build evidence
         if: always()
         run: |
           mkdir -p build-evidence
-          cp Cargo.lock build-evidence/ 2>/dev/null || true
+          cp Cargo.lock build-evidence/
           cp target/release/actionjev build-evidence/ 2>/dev/null || true
           cargo fmt
           tar --exclude=.git --exclude=target --exclude=build-evidence -czf build-evidence/source.tar.gz .
